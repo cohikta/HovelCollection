@@ -1,0 +1,50 @@
+name: libmpv to Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'no'
+        required: true
+        default: '00'
+      filename:
+        description: 'file'
+        required: true
+        default: '/'
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download file via aria2c
+        run: |
+          # sudo apt-get update && sudo apt-get install -y aria2
+          aria2c \
+            --max-connection-per-server=16 \
+            --split=16 \
+            --min-split-size=1M \
+            --max-tries=5 \
+            --retry-wait=3 \
+            --timeout=60 \
+            --console-log-level=warn \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0" \
+            --header="Cookie: ${{ secrets.MWF_COOKIES }}" \
+            --out="mpv-dev-x86_64-20230813-git-598e301.7z" \
+            "https://github.com/cohikta/guoapp/releases/download/auto-data/mpv-dev-x86_64-20230813-git-598e301.7z"
+
+          echo "✅ 下载完成："
+          ls -lh "mpv-dev-x86_64-20230813-git-598e301.7z"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: auto-load
+          name: "libmpv"
+          files: 'mpv-dev-x86_64-20230813-git-598e301.7z'
+          make_latest: false
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
