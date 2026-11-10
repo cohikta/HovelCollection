@@ -1,0 +1,90 @@
+name: build-thumb-implay
+
+on:
+  workflow_dispatch:
+    inputs:
+      mpv_dev_url:
+        description: 'mpv-dev-x86_64-*.7z 完整 URL；留空自动取 shinchiro 最新 release（非 v3）'
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            p7zip
+            mingw-w64-x86_64-gcc
+
+      - name: Download mpv dev package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = '${{ inputs.mpv_dev_url }}'
+          $asset = $null
+          if ([string]::IsNullOrWhiteSpace($url)) {
+            $rel = Invoke-RestMethod -Headers @{ 'User-Agent' = 'implay-thumb-builder' } `
+              'https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest'
+            $asset = $rel.assets | Where-Object {
+              $_.name -match '^mpv-dev-x86_64-\d{8}-git-[0-9a-z]+\.7z$'
+            } | Select-Object -First 1
+            if (-not $asset) { throw 'mpv-dev-x86_64 asset not found' }
+            $url = $asset.browser_download_url
+          }
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile mpv-dev.7z
+          if ($asset -and $asset.digest) {
+            $want = ($asset.digest -replace '^sha256:', '').ToLower()
+            $got  = (Get-FileHash mpv-dev.7z -Algorithm SHA256).Hash.ToLower()
+            if ($want -ne $got) { throw "SHA256 mismatch: $got != $want" }
+          }
+
+      - name: Extract headers and import library
+        run: |
+          7z x mpv-dev.7z -ompv-dev -y > /dev/null
+          test -f mpv-dev/include/mpv/client.h
+          test -f mpv-dev/libmpv.dll.a
+
+      - name: Compile ImPlay.exe
+        run: |
+          mkdir -p dist
+          g++ -O2 -std=c++17 -municode -mwindows \
+              -I./mpv-dev/include \
+              -o dist/ImPlay.exe ImPlay.cpp \
+              -L./mpv-dev -lmpv
+          objdump -p dist/ImPlay.exe | grep -i 'DLL Name: libmpv-2.dll'
+
+      - name: Package
+        run: |
+          cd dist
+          7z a -tzip ../ImPlay-thumb-x64.zip ImPlay.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImPlay-thumb-x64
+          path: ImPlay-thumb-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ImPlay-thumb-x64.zip
+          generate_release_notes: true
