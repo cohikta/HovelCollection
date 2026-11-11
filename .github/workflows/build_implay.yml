@@ -69,11 +69,6 @@ jobs:
               -L./mpv-dev -lmpv
           objdump -p dist/ImPlay.exe | grep -i 'DLL Name: libmpv-2.dll'
 
-      - name: Package
-        run: |
-          cd dist
-          7z a -tzip ../ImPlay-thumb-x64.zip ImPlay.exe
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
