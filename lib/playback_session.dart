@@ -34,7 +34,20 @@ String _diagnostic(Object error) {
   );
   return text.length > 300 ? text.substring(0, 300) : text;
 }
+// Windows 直通硬解：先试 direct，探测失败后本会话降级为 copyBack。
+WindowsHwdecMode _windowsHwdecMode = WindowsHwdecMode.direct;
+bool _windowsDirectProbed = false;
+String _hwdecCurrent = '';
 
+/// 供「设置 › 诊断」展示，例如 d3d11va / d3d11va-copy / no。
+String get hwdecCurrent => _hwdecCurrent;
+String get windowsHwdecNote => !Platform.isWindows
+    ? ''
+    : _windowsHwdecMode == WindowsHwdecMode.copyBack &&
+            store.playbackPreferences.televisionDecoder ==
+                TelevisionDecoder.hardware
+        ? '本机不支持 D3D11VA 直通，已回退到兼容硬解'
+        : '';
 class PlaybackSession extends ChangeNotifier {
   PlaybackSession({
     required this.repository,
@@ -478,7 +491,38 @@ class PlaybackSession extends ChangeNotifier {
     );
     await platform.setProperty('network-timeout', '20');
   }
+  Future<void> _probeWindowsHwdec(Player target) async {
+    if (!Platform.isWindows || _windowsDirectProbed) return;
+    if (store.playbackPreferences.televisionDecoder !=
+        TelevisionDecoder.hardware) return;
+    if (_windowsHwdecMode != WindowsHwdecMode.direct) return;
 
+    final platform = target.platform;
+    if (platform is! NativePlayer) return;
+
+    // 等解码器完成初始化。更稳的做法是监听 stream.videoParams 的首个事件。
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (_closed) return;
+
+    final current = await platform
+        .getProperty('hwdec-current')
+        .catchError((Object _) => '');
+    if (_closed) return;
+
+    _hwdecCurrent = current;
+    _windowsDirectProbed = true;
+
+    if (current == kWindowsDirectHwdec) {
+      _notify();
+      return;
+    }
+
+    // 直通未生效（no / d3d11va-copy / 空值）：mpv 此时已退回软解，
+    // 显式切回 copy-back，并让本会话后续所有 _configure 走兼容路径。
+    _windowsHwdecMode = WindowsHwdecMode.copyBack;
+    await platform.setProperty('hwdec', kWindowsCopyBackHwdec);
+    _notify();
+  }
   Future<void> play(
     int index, {
     double position = 0,
@@ -584,6 +628,7 @@ class PlaybackSession extends ChangeNotifier {
           play: _foreground && _playIntent,
         );
         if (!_current(ticket)) return;
+        unawaited(_probeWindowsHwdec(player));
         _openedIndex = index;
         _health.reset();
         await _setRate(_rate);
@@ -913,8 +958,16 @@ class PlaybackSession extends ChangeNotifier {
 
   Future<void> _savePreferences(PlaybackPreferences preferences) async {
     if (!_usable) throw StateError('当前用户已变更');
+    final changed = preferences.televisionDecoder !=
+        store.playbackPreferences.televisionDecoder;
     await store.setPlaybackPreferences(preferences);
     if (!_usable) throw StateError('当前用户已变更');
+    if (changed) {
+      _windowsDirectProbed = false;
+      _windowsHwdecMode = WindowsHwdecMode.direct;
+      _hwdecCurrent = '';
+      _notify();
+    }
   }
 
   Future<void> setSpeed(double value) async {
