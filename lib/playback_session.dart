@@ -34,20 +34,7 @@ String _diagnostic(Object error) {
   );
   return text.length > 300 ? text.substring(0, 300) : text;
 }
-// Windows 直通硬解：先试 direct，探测失败后本会话降级为 copyBack。
-WindowsHwdecMode _windowsHwdecMode = WindowsHwdecMode.direct;
-bool _windowsDirectProbed = false;
-String _hwdecCurrent = '';
 
-/// 供「设置 › 诊断」展示，例如 d3d11va / d3d11va-copy / no。
-String get hwdecCurrent => _hwdecCurrent;
-String get windowsHwdecNote => !Platform.isWindows
-    ? ''
-    : _windowsHwdecMode == WindowsHwdecMode.copyBack &&
-            store.playbackPreferences.televisionDecoder ==
-                TelevisionDecoder.hardware
-        ? '本机不支持 D3D11VA 直通，已回退到兼容硬解'
-        : '';
 class PlaybackSession extends ChangeNotifier {
   PlaybackSession({
     required this.repository,
@@ -190,6 +177,20 @@ class PlaybackSession extends ChangeNotifier {
   bool _aspectKnown = false;
   double _resumePosition = 0;
   double _unmutedVolume = 100;
+  // Windows 直通硬解：先试 direct，探测失败后本会话降级为 copyBack。
+  WindowsHwdecMode _windowsHwdecMode = WindowsHwdecMode.direct;
+  bool _windowsDirectProbed = false;
+  String _hwdecCurrent = '';
+  
+  /// 供「设置 › 诊断」展示，例如 d3d11va / d3d11va-copy / no。
+  String get hwdecCurrent => _hwdecCurrent;
+  String get windowsHwdecNote {
+    if (!Platform.isWindows) return '';
+    if (_windowsHwdecMode != WindowsHwdecMode.copyBack) return '';
+    if (store.playbackPreferences.televisionDecoder !=
+        TelevisionDecoder.hardware) return '';
+    return '本机不支持 D3D11VA 直通，已回退到兼容硬解';
+  }
 
   Player get player => _player;
 
