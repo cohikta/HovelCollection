@@ -456,13 +456,14 @@ class PlaybackSession extends ChangeNotifier {
       _ => null,
     };
     if (hwdec != null) await platform.setProperty('hwdec', hwdec);
-    if (Platform.isAndroid) {
-      await platform.setProperty('hwdec-codecs', 'all');
-      await platform.setProperty('vd-lavc-skiploopfilter', 'nonkey');
-      await platform.setProperty('vd-lavc-threads', '4');
-      await platform.setProperty('vd-lavc-fast', 'yes');
-      await platform.setProperty('video-sync', 'audio');
-      await platform.setProperty('framedrop', 'vo');
+    if (Platform.isWindows) {
+      await platform.setProperty('scale', 'bilinear');
+      await platform.setProperty('cscale', 'bilinear');
+      await platform.setProperty('dscale', 'bilinear');
+      await platform.setProperty('correct-downscaling', 'no');
+      await platform.setProperty('linear-downscaling', 'no');
+      await platform.setProperty('sigmoid-upscaling', 'no');
+      await platform.setProperty('hdr-compute-peak', 'no');
     }
     await platform.setProperty(
       'demuxer-lavf-o',
