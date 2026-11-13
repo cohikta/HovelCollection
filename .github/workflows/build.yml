@@ -85,6 +85,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   android:
+    if: false
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -160,12 +161,6 @@ jobs:
               exit 1
             fi
           done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.edition }}-android
-          path: dist/android/*
-          if-no-files-found: error
-          retention-days: 14
 
   windows:
     needs: prepare
@@ -192,161 +187,18 @@ jobs:
         shell: pwsh
         run: choco upgrade innosetup --no-progress -y
       - run: python scripts/build_windows.py ${{ matrix.arguments }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.edition }}-windows
-          path: dist/windows/*
-          if-no-files-found: error
-          retention-days: 14
-
-  ios:
-    needs: prepare
-    runs-on: macos-latest
-    timeout-minutes: 60
-    strategy: *editions
-    steps:
-      - uses: actions/checkout@v4
-      - *setup-python
-      - *setup-go
-      - *setup-flutter
-      - name: Check Xcode and CocoaPods
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcode-select -p
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-          xcrun --sdk iphoneos --find clang
-          if ! command -v pod >/dev/null 2>&1; then
-            brew install cocoapods
-          fi
-          pod --version
-          go version
-          flutter --version
-          flutter precache --ios
-      - name: Build unsigned iOS packages
-        run: python scripts/build_ios.py ${{ matrix.arguments }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.edition }}-ios-unsigned
-          path: dist/ios/*
-          if-no-files-found: error
-          retention-days: 14
-
-  macos:
-    needs: prepare
-    runs-on: macos-latest
-    timeout-minutes: 60
-    strategy: *editions
-    steps:
-      - uses: actions/checkout@v4
-      - *setup-python
-      - *setup-go
-      - *setup-flutter
-      - name: Check Xcode and CocoaPods
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcode-select -p
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
-          if ! command -v pod >/dev/null 2>&1; then
-            brew install cocoapods
-          fi
-          pod --version
-          python -m pip install dmgbuild Pillow
-          go version
-          flutter --version
-          flutter precache --macos
-      - name: Build macOS packages
-        run: python scripts/build_macos.py ${{ matrix.arguments }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.edition }}-macos
-          path: dist/macos/*
-          if-no-files-found: error
-          retention-days: 14
 
   release:
-    needs: [checks, prepare, android, windows, ios, macos]
+    needs: [checks, prepare, android, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          path: release
-          merge-multiple: true
-      - name: 发布 Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
-          ZHENGUOJIAN_CERT_SHA256: ${{ vars.ZHENGUOJIAN_CERT_SHA256 }}
-        run: |
-          set -euo pipefail
-          name="${ZHENGUOJIAN_DISPLAY_NAME:-真果鉴}"
-          cat > notes.md <<EOF
-          版本 ${VERSION}。两个版本功能相同，区别只在站源范围，按需选择：
-
-          - 红果鉴 hongguojian：仅红果站源
-          - ${name} zhenguojian：全部站源
-
-          Android：
-          - *-arm64-v8a.apk：适用于较新的安卓设备
-          - *-armeabi-v7a.apk：适用于较老的安卓设备，电视推荐使用此版本
-          - *-x86_64.apk：适用于模拟器
-
-          iOS：
-          - *-ios-unsigned.ipa：未签名 IPA，可用相关工具安装
-
-          Windows：
-          - *-windows-x64-setup.exe：安装包，默认安装到当前用户，无需管理员权限；安装时可改为所有用户
-          - *-windows-x64.zip：便携版，解压后运行 hongguojian.exe 或 zhenguojian.exe
-
-          macOS：
-          - *-macos-universal.dmg：适用于 macOS 12 及以上的 Apple 芯片和 Intel 电脑，打开后拖入 Applications；未经公证，首次打开前在终端执行 xattr -dr com.apple.quarantine /Applications/红果鉴.app（${name}为 ${name}.app）
-
-          签名证书 SHA-256：
-          - 红果鉴：${ANDROID_CERT_SHA256}
-          - ${name}：${ZHENGUOJIAN_CERT_SHA256}
-          EOF
-          changes="$(awk -v heading="## ${VERSION}" '
-            $0 == heading { found = 1; next }
-            found && /^## / { exit }
-            found && !started && /^[[:space:]]*$/ { next }
-            found { started = 1; print }
-          ' CHANGELOG.md)"
-          printf '%s' "$changes" > changes.md
-          if [ -n "$changes" ]; then
-            { printf '更新内容：\n\n%s\n\n' "$changes"; cat notes.md; } > notes.tmp
-            mv notes.tmp notes.md
-          fi
-          gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "红果鉴 / ${name} ${VERSION}" --notes-file notes.md
-      - name: 推送到 Telegram 频道
-        continue-on-error: true
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "未配置 Telegram，跳过推送。"
-            exit 0
-          fi
-          name="${ZHENGUOJIAN_DISPLAY_NAME:-真果鉴}"
-          changes="$(cat changes.md)"
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
-          text="红果鉴 / ${name} ${VERSION} 已发布"
-          if [ -n "$changes" ]; then
-            text="$(printf '%s\n\n更新内容：\n\n%s' "$text" "${changes:0:3500}")"
-          fi
-          text="$(printf '%s\n\n下载：%s' "$text" "$url")"
-          curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${text}" >/dev/null
+          name: ${{ matrix.edition }}-windows
+          path: dist/windows/*
+          if-no-files-found: error
+          retention-days: 3
