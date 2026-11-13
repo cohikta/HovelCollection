@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'core_bridge.dart';
+import 'mpv_decoder.dart';
 import 'danmaku_controller.dart';
 import 'danmaku_style.dart';
 import 'diary_service.dart';
@@ -445,26 +446,23 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _configure(Player target, PlaybackPlan plan) async {
     final platform = target.platform;
     if (platform is! NativePlayer) return;
-    final hwdec = switch (store.playbackPreferences.televisionDecoder) {
-      TelevisionDecoder.software => 'no',
-      TelevisionDecoder.hardware when Platform.isAndroid => 'mediacodec-copy',
-      TelevisionDecoder.hardware when Platform.isIOS || Platform.isMacOS =>
-        'videotoolbox-copy',
-      _ when Platform.isWindows => 'd3d11-egl',
-      _ when Platform.isAndroid => 'auto-safe',
-      _ when Platform.isMacOS => 'auto-safe',
-      _ => null,
-    };
+  
+    final hwdec = resolveHwdec(
+      store.playbackPreferences.televisionDecoder,
+      isAndroid: Platform.isAndroid,
+      isIOS: Platform.isIOS,
+      isMacOS: Platform.isMacOS,
+      isWindows: Platform.isWindows,
+      windowsMode: _windowsHwdecMode,
+    );
     if (hwdec != null) await platform.setProperty('hwdec', hwdec);
-    if (Platform.isWindows) {
-      await platform.setProperty('scale', 'bilinear');
-      await platform.setProperty('cscale', 'bilinear');
-      await platform.setProperty('dscale', 'bilinear');
-      await platform.setProperty('correct-downscaling', 'no');
-      await platform.setProperty('linear-downscaling', 'no');
-      await platform.setProperty('sigmoid-upscaling', 'no');
-      await platform.setProperty('hdr-compute-peak', 'no');
-    }
+  
+    // ⚠️ 不要在 _configure 里设置 gpu-hwdec-interop：
+    // 该选项运行期修改会被忽略，只在 renderer 创建时读取；
+    // 而 auto（默认）对 libmpv 已等同 all，创建 GL 上下文时就会加载
+    // 包括 d3d11-egl 在内的全部 interop。
+    // 同理不要写 vo / gpu-api / gpu-context —— 宿主 ANGLE 上下文由 media_kit 提供。
+  
     await platform.setProperty(
       'demuxer-lavf-o',
       [
