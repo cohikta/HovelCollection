@@ -1,4 +1,4 @@
-name: Build app packages
+name: Build windows packages
 
 on:
   workflow_dispatch:
@@ -7,198 +7,64 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-build-${{ github.workflow }}-${{ github.ref }}
-
-env:
-  GOPROXY: https://proxy.golang.org,direct
-  GOSUMDB: sum.golang.org
-  UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
-  ZHENGUOJIAN_PACKAGE_NAME: ${{ vars.ZHENGUOJIAN_PACKAGE_NAME }}
-  ZHENGUOJIAN_DISPLAY_NAME: ${{ vars.ZHENGUOJIAN_DISPLAY_NAME }}
-  ZHENGUOJIAN_LATIN_NAME: ${{ vars.ZHENGUOJIAN_LATIN_NAME }}
-  PROJECT_URL: ${{ vars.PROJECT_URL }}
-  TELEGRAM_GROUP_URL: ${{ vars.TELEGRAM_GROUP_URL }}
-  TELEGRAM_CHANNEL_URL: ${{ vars.TELEGRAM_CHANNEL_URL }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: zhenguojian
+            arguments: '--all-sources'
+    env:
+      UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
     steps:
       - uses: actions/checkout@v4
-      - &setup-go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: native/go.mod
+          cache: true
           cache-dependency-path: native/go.sum
-      - &setup-flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
-      - run: flutter pub get --enforce-lockfile
-      - run: dart format --output=none --set-exit-if-changed lib test
-        continue-on-error: true
-      - run: dart analyze --fatal-infos lib test
-        continue-on-error: true
-      # 测试当前不阻塞出包（开发优先、集中验证暂缓），结果仍会显示在运行详情里。
-      - run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
-        continue-on-error: true
-      - run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
-        continue-on-error: true
-      - run: go test -race ./...
-        working-directory: native
-        continue-on-error: true
-      - run: go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
-        working-directory: native
-        continue-on-error: true
-
-  prepare:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "只能从 main 分支手动发布，当前为 $GITHUB_REF。" >&2
-            exit 1
-          fi
-          version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)
-          if [ -z "$version" ]; then
-            echo "pubspec.yaml 缺少 version。" >&2
-            exit 1
-          fi
-          tag="app-v${version//+/-}"
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || gh release view "$tag" >/dev/null 2>&1; then
-            echo "版本 $version（$tag）已发布过，请先提升 pubspec.yaml 的 version。" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-  android:
-    if: false
-    needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy: &editions
-      fail-fast: false
-      matrix:
-        include:
-          - edition: hongguojian
-            arguments: ''
-            signing: ANDROID
-          - edition: zhenguojian
-            arguments: '--all-sources'
-            signing: ZHENGUOJIAN
-    steps:
-      - uses: actions/checkout@v4
-      - &setup-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - *setup-go
-      - *setup-flutter
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: "platforms;android-36"
-          accept-android-sdk-licenses: true
-      - run: sdkmanager 'ndk;28.2.13676358'
-      - name: Configure Android signing
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets[format('{0}_KEYSTORE_BASE64', matrix.signing)] }}
-        run: |
-          set -euo pipefail
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "未配置签名 Secrets，拒绝发布 debug 签名的 APK。" >&2
-            exit 1
-          fi
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-      - run: python scripts/build_android.py ${{ matrix.arguments }}
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets[format('{0}_KEYSTORE_PASSWORD', matrix.signing)] }}
-          ANDROID_KEY_ALIAS: ${{ secrets[format('{0}_KEY_ALIAS', matrix.signing)] }}
-          ANDROID_KEY_PASSWORD: ${{ secrets[format('{0}_KEY_PASSWORD', matrix.signing)] }}
-      - name: 校验 APK 签名证书
-        shell: bash
-        env:
-          CERT_SHA256: ${{ vars[format('{0}_CERT_SHA256', matrix.signing)] }}
-          CERT_VARIABLE: ${{ matrix.signing }}_CERT_SHA256
-        run: |
-          set -euo pipefail
-          expected=$(printf '%s' "$CERT_SHA256" | tr -d ': ' | tr '[:upper:]' '[:lower:]')
-          if [ -z "$expected" ]; then
-            echo "未设置仓库变量 $CERT_VARIABLE，无法确认发布证书。" >&2
-            exit 1
-          fi
-          apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f 2>/dev/null | sort | tail -n1 || true)
-          if [ -z "$apksigner" ]; then
-            sdkmanager 'build-tools;35.0.0' >/dev/null
-            apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort | tail -n1)
-          fi
-          echo "apksigner：$apksigner"
-          "$apksigner" --version || true
-          for apk in dist/android/*.apk; do
-            echo "== $(basename "$apk")"
-            output=$("$apksigner" verify --print-certs "$apk" 2>&1 || true)
-            printf '%s\n' "$output"
-            if ! printf '%s' "$output" | tr -d ':' | tr '[:upper:]' '[:lower:]' | grep "$expected" >/dev/null; then
-              echo "签名证书与发布证书不一致，已终止。" >&2
-              exit 1
-            fi
-          done
-
-  windows:
-    needs: prepare
-    runs-on: windows-latest
-    timeout-minutes: 45
-    strategy: *editions
-    steps:
-      - uses: actions/checkout@v4
-      - *setup-go
-      - *setup-python
-      - *setup-flutter
-      - name: Set up MinGW-w64
+      - name: Use preinstalled MinGW-w64
         shell: pwsh
         run: |
-          choco install mingw --no-progress -y
-          $exe = Get-ChildItem -Path 'C:\ProgramData\mingw64', 'C:\ProgramData\chocolatey\lib\mingw' `
-                   -Recurse -Include 'x86_64-w64-mingw32-gcc.exe', 'gcc.exe' -ErrorAction SilentlyContinue |
-                 Select-Object -First 1 -ExpandProperty FullName
-          if (-not $exe) { $exe = (Get-Command x86_64-w64-mingw32-gcc -ErrorAction SilentlyContinue).Source }
-          if (-not $exe) { throw 'MinGW-w64 安装失败，找不到 gcc' }
-          Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & $exe --version | Select-Object -First 1
-      - name: Set up Inno Setup
-        shell: pwsh
-        run: choco upgrade innosetup --no-progress -y
+          echo "C:\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "C:\mingw64\bin;$env:PATH"
+          $gcc = Get-Command gcc -ErrorAction Stop
+          & $gcc.Source --version | Select-Object -First 1
       - run: python scripts/build_windows.py ${{ matrix.arguments }}
-
-  release:
-    needs: [checks, prepare, android, windows]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
+      - name: Collect final package
+        shell: pwsh
+        env:
+          PACKAGE_EXTS: '.zip'
+        run: |
+          $stage = 'dist\preview'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $exts = $env:PACKAGE_EXTS.Split(',')
+          Get-ChildItem 'dist\windows' -File |
+            Where-Object { $exts -contains $_.Extension.ToLowerInvariant() } |
+            Copy-Item -Destination $stage
+          $files = @(Get-ChildItem $stage -File)
+          if ($files.Count -eq 0) {
+            throw "dist\windows 下没有匹配 $env:PACKAGE_EXTS 的最终产物"
+          }
+          $files | Select-Object -ExpandProperty Name
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-windows
-          path: dist/windows/*
+          path: dist/preview/
           if-no-files-found: error
           retention-days: 3
