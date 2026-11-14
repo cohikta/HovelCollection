@@ -74,6 +74,17 @@ duanju_native_archive(
 )
 file(COPY "${LIBMPV_SRC}/include/mpv/" DESTINATION "${LIBMPV_SRC}/include")
 
+set(ANGLE_SRC "${CMAKE_BINARY_DIR}/ANGLE")
+duanju_native_archive(
+  "ANGLE-v1.0.1.7z"
+  "https://github.com/Xanerix/guoapp/releases/download/windows-native-deps/ANGLE-v1.0.1.7z"
+  "cc5911bb15d596fd5a2b362613ad35b7093b427117269a7359054a65746a5f9a"
+  "${ANGLE_SRC}"
+  "include/EGL/egl.h" "lib/libEGL.dll.lib" "lib/libGLESv2.dll.lib"
+  "d3dcompiler_47.dll" "libc++.dll" "libEGL.dll" "libGLESv2.dll"
+  "vk_swiftshader.dll" "vulkan-1.dll" "zlib.dll"
+)
+
 set(PLUGIN_NAME "media_kit_libs_windows_video_plugin")
 add_library(${PLUGIN_NAME} SHARED
   "include/media_kit_libs_windows_video/media_kit_libs_windows_video_plugin_c_api.h"
