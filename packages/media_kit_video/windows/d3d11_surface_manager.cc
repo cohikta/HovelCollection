@@ -31,6 +31,7 @@ void D3D11SurfaceManager::SetSize(int32_t width, int32_t height) {
 
 void D3D11SurfaceManager::Draw(std::function<void()> callback) {
   ::WaitForSingleObject(mutex_, INFINITE);
+  callback();
   d3d_11_device_context_->Flush();
   ::ReleaseMutex(mutex_);
 }
