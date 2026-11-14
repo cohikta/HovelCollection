@@ -56,6 +56,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-windows
-          path: dist/windows/*-windows.zip
+          path: dist/windows/*.zip
           if-no-files-found: error
           retention-days: 3
