@@ -56,7 +56,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: preview
-          files: ${{ matrix.edition }}-windows.zip
+          files: dist/windows/*.zip
           make_latest: false
           fail_on_unmatched_files: false
         env:
