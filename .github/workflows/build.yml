@@ -53,9 +53,11 @@ jobs:
         run: python scripts/build_windows.py ${{ matrix.arguments }}
         shell: pwsh
 
-      - uses: actions/upload-artifact@v4
+      - uses: softprops/action-gh-release@v2
         with:
-          name: ${{ matrix.edition }}-windows
-          path: dist/windows/*.zip
-          if-no-files-found: error
-          retention-days: 3
+          tag_name: preview
+          files: ${{ matrix.edition }}-windows.zip
+          make_latest: false
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
