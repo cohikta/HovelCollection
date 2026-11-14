@@ -1,4 +1,4 @@
-name: Build windows packages
+name: Build to artifact
 
 on:
   workflow_dispatch:
@@ -14,55 +14,48 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 50
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - edition: zhenguojian
             arguments: '--all-sources'
+
     env:
       UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: native/go.mod
-          cache: true
           cache-dependency-path: native/go.sum
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
-      - name: Use preinstalled MinGW-w64
-        shell: pwsh
+
+      - name: Setup MinGW-w64
         run: |
-          echo "C:\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:PATH = "C:\mingw64\bin;$env:PATH"
-          $gcc = Get-Command gcc -ErrorAction Stop
-          & $gcc.Source --version | Select-Object -First 1
-      - run: python scripts/build_windows.py ${{ matrix.arguments }}
-      - name: Collect final package
+          echo "C:\mingw64\bin" >> $env:GITHUB_PATH
+          gcc --version
         shell: pwsh
-        run: |
-          $stage = 'dist\preview'
-          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          $exts = $env:PACKAGE_EXTS.Split(',')
-          Get-ChildItem 'dist\windows' -File |
-            Where-Object { $exts -contains $_.Extension.ToLowerInvariant() } |
-            Copy-Item -Destination $stage
-          $files = @(Get-ChildItem $stage -File)
-          if ($files.Count -eq 0) {
-            throw "dist\windows 下没有匹配 $env:PACKAGE_EXTS 的最终产物"
-          }
-          $files | Select-Object -ExpandProperty Name
+
+      - name: Build
+        run: python scripts/build_windows.py ${{ matrix.arguments }}
+        shell: pwsh
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.edition }}-windows
-          path: dist/preview/*.zip
+          path: dist/windows/*-windows.zip
           if-no-files-found: error
           retention-days: 3
