@@ -33,17 +33,14 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0" \
             --header="Cookie: ${{ secrets.MWF_COOKIES }}" \
             --out="mpv-dev-x86_64-20230806-git-6729285.7z" \
-            "https://github.com/cohikta/guoapp/releases/download/auto-data/mpv-dev-x86_64-20230806-git-6729285.7z"
+            "https://github.com/Xanerix/guoapp/releases/download/app-v1.0.11-111/hongguojian-1.0.11+111-windows-x64.zip"
 
           echo "✅ 下载完成："
-          ls -lh "mpv-dev-x86_64-20230806-git-6729285.7z"
+          ls -lh "hongguojian-1.0.11+111-windows-x64.zip"
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: auto-load
-          name: "libmpv"
-          files: 'mpv-dev-x86_64-20230806-git-6729285.7z'
+          path: ./*.zip
           make_latest: false
           fail_on_unmatched_files: false
         env:
