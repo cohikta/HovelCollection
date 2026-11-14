@@ -59,5 +59,4 @@ jobs:
           files: dist/windows/*.zip
           make_latest: false
           fail_on_unmatched_files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          append_body: false
