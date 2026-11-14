@@ -31,8 +31,7 @@ jobs:
             --timeout=60 \
             --console-log-level=warn \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0" \
-            --header="Cookie: ${{ secrets.MWF_COOKIES }}" \
-            --out="mpv-dev-x86_64-20230806-git-6729285.7z" \
+            --out="hongguojian-1.0.11+111-windows-x64.zip" \
             "https://github.com/Xanerix/guoapp/releases/download/app-v1.0.11-111/hongguojian-1.0.11+111-windows-x64.zip"
 
           echo "✅ 下载完成："
