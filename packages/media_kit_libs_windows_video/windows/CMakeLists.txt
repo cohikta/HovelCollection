@@ -70,20 +70,9 @@ duanju_native_archive(
   "https://github.com/mpv-player/mpv/releases/download/v0.42.0/libmpv-v0.42.0-x86_64-w64-mingw32-gpl.zip"
   "b99e0d183024ae479d1b36a93fa262c0297dfb025b99715b98da377ffb6c2913"
   "${LIBMPV_SRC}"
-  "libmpv-2.dll" "libmpv.dll.a" "include/mpv/client.h" "include/mpv/render.h" "include/mpv/render_d3d11.h" "include/mpv/render_gl.h"
+  "libmpv-2.dll" "libmpv.dll.a" "include/mpv/client.h" "include/mpv/render.h" "include/mpv/render_d3d11.h"
 )
 file(COPY "${LIBMPV_SRC}/include/mpv/" DESTINATION "${LIBMPV_SRC}/include")
-
-set(ANGLE_SRC "${CMAKE_BINARY_DIR}/ANGLE")
-duanju_native_archive(
-  "ANGLE-v1.0.1.7z"
-  "https://github.com/Xanerix/guoapp/releases/download/windows-native-deps/ANGLE-v1.0.1.7z"
-  "cc5911bb15d596fd5a2b362613ad35b7093b427117269a7359054a65746a5f9a"
-  "${ANGLE_SRC}"
-  "include/EGL/egl.h" "lib/libEGL.dll.lib" "lib/libGLESv2.dll.lib"
-  "d3dcompiler_47.dll" "libc++.dll" "libEGL.dll" "libGLESv2.dll"
-  "vk_swiftshader.dll" "vulkan-1.dll" "zlib.dll"
-)
 
 set(PLUGIN_NAME "media_kit_libs_windows_video_plugin")
 add_library(${PLUGIN_NAME} SHARED
@@ -98,10 +87,5 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
 set(media_kit_libs_windows_video_bundled_libraries
   "${LIBMPV_SRC}/libmpv-2.dll"
-  "${ANGLE_SRC}/d3dcompiler_47.dll"
-  "${ANGLE_SRC}/libc++.dll"
-  "${ANGLE_SRC}/vk_swiftshader.dll"
-  "${ANGLE_SRC}/vulkan-1.dll"
-  "${ANGLE_SRC}/zlib.dll"
   PARENT_SCOPE
 )
