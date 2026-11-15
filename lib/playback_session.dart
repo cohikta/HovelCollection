@@ -518,10 +518,6 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
 
-    // 直通未生效（no / d3d11va-copy / 空值）：mpv 此时已退回软解，
-    // 显式切回 copy-back，并让本会话后续所有 _configure 走兼容路径。
-    _windowsHwdecMode = WindowsHwdecMode.copyBack;
-    await platform.setProperty('hwdec', kWindowsCopyBackHwdec);
     _notify();
   }
   Future<void> play(
@@ -735,7 +731,6 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     _standbyPlan = plan;
-    unawaited(_open(standby, plan));
   }
 
   Future<void> _open(Player standby, PlaybackPlan plan) async {

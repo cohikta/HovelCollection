@@ -20,7 +20,10 @@ class PlayerVideo extends StatelessWidget {
       controller: controller,
       controls: NoVideoControls,
       fill: Colors.black,
+      fit: BoxFit.contain,
+      wakelock: false,
       pauseUponEnteringBackgroundMode: false,
+      resumeUponEnteringForegroundMode: false,
     );
     if (!Platform.isWindows) return video;
     final ratio = MediaQuery.devicePixelRatioOf(context);
