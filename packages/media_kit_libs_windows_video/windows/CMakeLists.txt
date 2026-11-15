@@ -65,7 +65,6 @@ function(duanju_native_archive filename url digest destination)
 endfunction()
 
 set(LIBMPV_SRC "${CMAKE_BINARY_DIR}/libmpv")
-set(D3D11_HEAD "${CMAKE_CURRENT_SOURCE_DIR}/render_d3d11.h")
 duanju_native_archive(
   "mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
   "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
@@ -73,7 +72,6 @@ duanju_native_archive(
   "${LIBMPV_SRC}"
   "libmpv-2.dll" "libmpv.dll.a" "include/mpv/client.h" "include/mpv/render.h"
 )
-file(COPY "${D3D11_HEAD}" DESTINATION "${LIBMPV_SRC}/include/mpv")
 file(COPY "${LIBMPV_SRC}/include/mpv/" DESTINATION "${LIBMPV_SRC}/include")
 
 set(PLUGIN_NAME "media_kit_libs_windows_video_plugin")

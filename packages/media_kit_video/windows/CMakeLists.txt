@@ -15,6 +15,9 @@ set(PLUGIN_NAME "media_kit_video_plugin")
 # This is shipped as part of package:media_kit_libs_*** package(s).
 # Must be built before this target.
 set(LIBMPV_SRC "${CMAKE_BINARY_DIR}/libmpv")
+set(D3D11_HEAD "${CMAKE_CURRENT_SOURCE_DIR}/render_d3d11.h")
+file(COPY "${D3D11_HEAD}" DESTINATION "${LIBMPV_SRC}/include/mpv")
+file(COPY "${D3D11_HEAD}" DESTINATION "${LIBMPV_SRC}/include")
 
 # Deal with MSVC incompatiblity
 add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
