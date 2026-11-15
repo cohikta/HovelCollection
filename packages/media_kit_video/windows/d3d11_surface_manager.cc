@@ -36,23 +36,6 @@ void D3D11SurfaceManager::Draw(std::function<void()> callback) {
   ::ReleaseMutex(mutex_);
 }
 
-void D3D11SurfaceManager::Draw(std::function<void()> callback) {
-  ::WaitForSingleObject(mutex_, INFINITE);
-  if (callback) {
-    callback();
-  }
-  if (d3d_11_device_context_.Get() != nullptr &&
-      internal_d3d_11_texture_2D_.Get() != nullptr &&
-      d3d_11_texture_2D_.Get() != nullptr) {
-    d3d_11_device_context_->CopyResource(
-        d3d_11_texture_2D_.Get(),
-        internal_d3d_11_texture_2D_.Get());
-    d3d_11_device_context_->Flush();
-  }
-
-  ::ReleaseMutex(mutex_);
-}
-
 void D3D11SurfaceManager::Read() {
   ::WaitForSingleObject(mutex_, INFINITE);
   if (d3d_11_device_context_ != nullptr) {
