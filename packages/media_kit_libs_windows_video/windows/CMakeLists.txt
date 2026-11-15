@@ -67,9 +67,9 @@ endfunction()
 set(LIBMPV_SRC "${CMAKE_BINARY_DIR}/libmpv")
 set(D3D11_HEAD "${CMAKE_CURRENT_SOURCE_DIR}/render_d3d11.h")
 duanju_native_archive(
-  "mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
-  "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
-  "273c079b11ea5575822f972756f4c9a71149a5c10130353abeb8586738938452"
+  "mpv-dev-x86_64-20231231-git-abc2a74.7z"
+  "https://github.com/cohikta/HovelCollection/releases/download/releases/mpv-dev-x86_64-20231231-git-abc2a74.7z"
+  "6bff842edc82b5dca03243a5c0570df0d3a7d39254050629f7b6539fe99ec724"
   "${LIBMPV_SRC}"
   "libmpv-2.dll" "libmpv.dll.a" "include/mpv/client.h" "include/mpv/render.h"
 )
