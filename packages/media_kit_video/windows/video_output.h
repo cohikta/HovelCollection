@@ -89,6 +89,8 @@ class VideoOutput {
 
   int64_t GetVideoHeight();
 
+  void FreeRenderContext();
+
   std::optional<int64_t> height_ = std::nullopt;
   std::optional<int64_t> width_ = std::nullopt;
   VideoOutputConfiguration configuration_ = VideoOutputConfiguration{};

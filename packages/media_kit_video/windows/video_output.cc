@@ -83,8 +83,8 @@ VideoOutput::VideoOutput(int64_t handle,
                   << std::endl;
       }
       if (!is_hardware_acceleration_enabled) {
+        FreeRenderContext();
         surface_manager_.reset(nullptr);
-        render_context_ = nullptr;
       }
     }
     if (!is_hardware_acceleration_enabled) {
@@ -121,52 +121,25 @@ VideoOutput::VideoOutput(int64_t handle,
 
 VideoOutput::~VideoOutput() {
   destroyed_ = true;
-  thread_pool_ref_->Post([&]() {
-      if (render_context_ == nullptr) {
-        return;
-      }
-      mpv_render_context_set_update_callback(render_context_, nullptr,
-                                              nullptr);
-      if (surface_manager_ != nullptr) {
-        surface_manager_->Draw([&]() { mpv_render_context_free(render_context_); });
-      } else {
-        mpv_render_context_free(render_context_);
-      }
-      render_context_ = nullptr;
-    }).wait();
+  thread_pool_ref_->Post([this]() {
+    FreeRenderContext();
+  }).wait();
   auto promise = std::promise<void>();
   if (texture_id_) {
     registrar_->texture_registrar()->UnregisterTexture(
         texture_id_, [&, texture_id = texture_id_]() {
-          // Add one more task into the thread pool queue & exit the destructor
-          // only when it gets executed. This will ensure that all the tasks
-          // posted to the thread pool i.e. render or resize before this are
-          // executed (and won't reference the dead object anymore), most
-          // notably |CheckAndResize| & |Render|.
           thread_pool_ref_->Post([&, id = texture_id]() {
-            std::cout << "media_kit: VideoOutput: Free Texture: " << id
-                      << std::endl;
-            std::cout << "VideoOutput::~VideoOutput: "
-                      << reinterpret_cast<int64_t>(handle_) << std::endl;
             std::lock_guard<std::mutex> lock(textures_mutex_);
-            if (render_context_ != nullptr) { 
-              mpv_render_context_free(render_context_); 
-              render_context_ = nullptr; 
-            }
+            FreeRenderContext();
             texture_variants_.clear();
-            // H/W
             textures_.clear();
-            // S/W
             pixel_buffer_textures_.clear();
             surface_manager_.reset(nullptr);
             promise.set_value();
           });
         });
-  } else { 
-    if (render_context_ != nullptr) { 
-      mpv_render_context_free(render_context_); 
-      render_context_ = nullptr; 
-    } 
+  } else {
+    FreeRenderContext();
     promise.set_value();
   }
   promise.get_future().wait();
@@ -177,8 +150,17 @@ void VideoOutput::NotifyRender() {
   if (destroyed_) {
     return;
   }
-  thread_pool_ref_->Post(std::bind(&VideoOutput::CheckAndResize, this));
-  thread_pool_ref_->Post(std::bind(&VideoOutput::Render, this));
+  thread_pool_ref_->Post([this]() {
+    if (destroyed_ || render_context_ == nullptr) {
+      return;
+    }
+    const auto flags = mpv_render_context_update(render_context_);
+    if ((flags & MPV_RENDER_UPDATE_FRAME) == 0) {
+      return;
+    }
+    CheckAndResize();
+    Render();
+  });
 }
 
 void VideoOutput::Render() {
@@ -241,6 +223,20 @@ void VideoOutput::Render() {
     registrar_->texture_registrar()->MarkTextureFrameAvailable(texture_id_);
   } catch (...) {
     // Prevent any redundant exceptions if the texture is unregistered etc.
+  }
+}
+
+void VideoOutput::FreeRenderContext() {
+  if (render_context_ == nullptr) {
+    return;
+  }
+  mpv_render_context_set_update_callback(render_context_, nullptr, nullptr);
+  auto* context = render_context_;
+  render_context_ = nullptr;
+  if (surface_manager_ != nullptr) {
+    surface_manager_->Draw([context]() { mpv_render_context_free(context); });
+  } else {
+    mpv_render_context_free(context);
   }
 }
 
