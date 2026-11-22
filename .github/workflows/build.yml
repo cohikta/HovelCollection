@@ -153,75 +153,7 @@ jobs:
           name: windows
           path: dist/windows/*
           if-no-files-found: error
-          retention-days: 14
-
-  ios:
-    needs: prepare
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - *checkout-hongguo
-      - *setup-python
-      - *setup-go
-      - *setup-flutter
-      - name: Check Xcode and CocoaPods
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcode-select -p
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-          xcrun --sdk iphoneos --find clang
-          if ! command -v pod >/dev/null 2>&1; then
-            brew install cocoapods
-          fi
-          pod --version
-          go version
-          flutter --version
-          flutter precache --ios
-      - name: Build unsigned iOS packages
-        run: python scripts/build_ios.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned
-          path: dist/ios/*
-          if-no-files-found: error
-          retention-days: 14
-
-  macos:
-    needs: prepare
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - *checkout-hongguo
-      - *setup-python
-      - *setup-go
-      - *setup-flutter
-      - name: Check Xcode and CocoaPods
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcode-select -p
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
-          if ! command -v pod >/dev/null 2>&1; then
-            brew install cocoapods
-          fi
-          pod --version
-          python -m pip install dmgbuild Pillow
-          go version
-          flutter --version
-          flutter precache --macos
-      - name: Build macOS packages
-        run: python scripts/build_macos.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist/macos/*
-          if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   release:
     needs: [prepare, windows]
