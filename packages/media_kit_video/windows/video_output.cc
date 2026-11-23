@@ -129,7 +129,9 @@ VideoOutput::~VideoOutput() {
       mpv_render_context_set_update_callback(render_context_, nullptr,
                                               nullptr);
       if (surface_manager_ != nullptr) {
-        surface_manager_->Draw([&]() { mpv_render_context_free(render_context_); });
+        // Do not publish a frame while tearing down the render context.
+        surface_manager_->Draw(
+            [&]() { mpv_render_context_free(render_context_); }, false);
       } else {
         mpv_render_context_free(render_context_);
       }
@@ -178,8 +180,24 @@ void VideoOutput::NotifyRender() {
   if (destroyed_) {
     return;
   }
-  thread_pool_ref_->Post(std::bind(&VideoOutput::CheckAndResize, this));
-  thread_pool_ref_->Post(std::bind(&VideoOutput::Render, this));
+  // mpv's update callback may fire more than once per video frame (OSD,
+  // property changes, seeks). Coalesce into a single in-flight task; a new
+  // frame always triggers another callback, so dropping redundant ones is
+  // safe and removes two packaged_task allocations + two queue wakeups/frame.
+  if (render_pending_.exchange(true)) {
+    return;
+  }
+  thread_pool_ref_->Post([this]() {
+    struct Reset {
+      std::atomic<bool>& flag;
+      ~Reset() { flag.store(false); }
+    } reset{render_pending_};
+    if (destroyed_) {
+      return;
+    }
+    CheckAndResize();
+    Render();
+  });
 }
 
 void VideoOutput::Render() {
@@ -199,8 +217,11 @@ void VideoOutput::Render() {
       };
       auto err = mpv_render_context_render(render_context_, params);
       if (err < 0) {
-        std::cout << "media_kit: VideoOutput: mpv_render_context_render(D3D11): "
-                  << mpv_error_string(err) << std::endl;
+        if (render_error_count_.fetch_add(1) % 120 == 0) {
+          std::cout << "media_kit: VideoOutput: mpv_render_context_render(D3D11): "
+                    << mpv_error_string(err) << " (further errors suppressed)"
+                    << std::endl;
+        }
         return;
       }
       rendered = true;
@@ -375,7 +396,8 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
                   surface_manager_ == nullptr) {
                 return (FlutterDesktopGpuSurfaceDescriptor*)nullptr;
               }
-              surface_manager_->Read();
+              // No GPU work here; the frame was already published by
+              // D3D11SurfaceManager::Draw() on the render thread.
               return it->second.get();
             }));
     // Register new texture.

@@ -13,13 +13,11 @@
 
 D3D11SurfaceManager::D3D11SurfaceManager(int32_t width, int32_t height)
     : width_(width), height_(height) {
-  mutex_ = ::CreateMutex(NULL, FALSE, NULL);
   Create();
 }
 
 D3D11SurfaceManager::~D3D11SurfaceManager() {
   CleanUp(true);
-  ::CloseHandle(mutex_);
 }
 
 void D3D11SurfaceManager::SetSize(int32_t width, int32_t height) {
@@ -29,21 +27,36 @@ void D3D11SurfaceManager::SetSize(int32_t width, int32_t height) {
   Create();
 }
 
-void D3D11SurfaceManager::Draw(std::function<void()> callback) {
-  ::WaitForSingleObject(mutex_, INFINITE);
+void D3D11SurfaceManager::Draw(std::function<void()> callback, bool publish) {
+  // All GPU work happens here, on the ThreadPool render thread, on mpv's own
+  // immediate context. No other thread touches this context while mpv renders.
   callback();
-  d3d_11_device_context_->Flush();
-  ::ReleaseMutex(mutex_);
+
+  // Publish the finished frame into the shared texture BEFORE notifying
+  // Flutter. The old code did this inside Read(), i.e. on Flutter's raster
+  // thread, which put a CopyResource + Flush into the vsync frame budget.
+  if (publish && d3d_11_device_context_ != nullptr &&
+      d3d_11_texture_2D_ != nullptr &&
+      internal_d3d_11_texture_2D_ != nullptr) {
+    d3d_11_device_context_->CopyResource(d3d_11_texture_2D_.Get(),
+                                         internal_d3d_11_texture_2D_.Get());
+  }
+
+  // One Flush per frame (was two: one in Draw, one in Read).
+  // MSDN: "Each call to Flush incurs a significant amount of overhead" and
+  // "Most applications don't need to call this method". We keep exactly one
+  // because a *different* D3D11 device (Flutter/ANGLE) reads the shared
+  // texture; this is the only submission barrier we have for that handoff.
+  if (d3d_11_device_context_ != nullptr) {
+    d3d_11_device_context_->Flush();
+  }
 }
 
 void D3D11SurfaceManager::Read() {
-  ::WaitForSingleObject(mutex_, INFINITE);
-  if (d3d_11_device_context_ != nullptr) {
-    d3d_11_device_context_->CopyResource(d3d_11_texture_2D_.Get(),
-                                         internal_d3d_11_texture_2D_.Get());
-    d3d_11_device_context_->Flush();
-  }
-  ::ReleaseMutex(mutex_);
+  // Intentionally empty. The GpuSurfaceTexture callback runs on Flutter's
+  // render thread and only needs to return the descriptor; doing GPU work
+  // there (CopyResource/Flush) stalls composition. Kept as a no-op so the
+  // call site in video_output.cc stays source-compatible during rollout.
 }
 
 void D3D11SurfaceManager::Create() {

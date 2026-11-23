@@ -16,8 +16,9 @@
 
 // |D3D11SurfaceManager| owns the ID3D11Device passed to libmpv, the texture
 // mpv renders into, and the shared texture handed to Flutter.
-// * |Draw|: runs mpv_render_context_render into |internal| texture.
-// * |Read|: copies |internal| -> |external| for the shared |HANDLE|.
+// * |Draw|: runs mpv_render_context_render into |internal| texture, then
+//   copies |internal| -> |external| and submits everything with one Flush().
+// * |Read|: kept for API compatibility; intentionally does no GPU work now.
 class D3D11SurfaceManager {
  public:
   const int32_t width() const { return width_; }
@@ -33,7 +34,9 @@ class D3D11SurfaceManager {
   ~D3D11SurfaceManager();
 
   void SetSize(int32_t width, int32_t height);
-  void Draw(std::function<void()> callback);
+  // If |publish| is false (destruction path), skip the copy into the shared
+  // texture but still flush mpv's pending work.
+  void Draw(std::function<void()> callback, bool publish = true);
   void Read();
 
  private:
@@ -44,7 +47,6 @@ class D3D11SurfaceManager {
   int32_t width_ = 1;
   int32_t height_ = 1;
   HANDLE handle_ = nullptr;
-  HANDLE mutex_ = nullptr;
 
   Microsoft::WRL::ComPtr<ID3D11Device> d3d_11_device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_11_device_context_;

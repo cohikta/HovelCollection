@@ -9,6 +9,7 @@
 #ifndef VIDEO_OUTPUT_H_
 #define VIDEO_OUTPUT_H_
 
+#include <atomic>
 #include <optional>
 
 #include <client.h>
@@ -120,6 +121,12 @@ class VideoOutput {
   std::unique_ptr<uint8_t[]> pixel_buffer_ = nullptr;
   std::unordered_map<int64_t, std::unique_ptr<FlutterDesktopPixelBuffer>>
       pixel_buffer_textures_ = {};
+
+  // Coalesces high-frequency mpv update callbacks into one in-flight
+  // ThreadPool task, instead of posting CheckAndResize + Render every time.
+  std::atomic<bool> render_pending_ = false;
+  // Rate-limits per-frame error logging to avoid log storms.
+  std::atomic<uint32_t> render_error_count_ = 0;
 
   // Public notifier. This is called when a new texture is registered & texture
   // ID is changed. Only happens when video output resolution changes.
