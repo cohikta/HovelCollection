@@ -18,6 +18,7 @@ import 'package:media_kit_video/src/utils/wakelock.dart';
 import 'package:media_kit_video/src/video_view_parameters.dart';
 import 'package:media_kit_video/src/video_controller/video_controller.dart';
 import 'package:media_kit_video/src/video_controller/platform_video_controller.dart';
+import 'package:media_kit_video/src/video_controller/native_video_controller/native_video_controller.dart';
 
 /// {@template video}
 ///
@@ -369,9 +370,38 @@ class VideoState extends State<Video> with WidgetsBindingObserver {
 
   void refreshView() {}
 
+  void _applyDisplaySizeFromConstraints(
+    BoxConstraints constraints,
+    double devicePixelRatio,
+  ) {
+    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+      return;
+    }
+    if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) {
+      return;
+    }
+    final platform = widget.controller.notifier.value;
+    if (platform is NativeVideoController) {
+      if (platform.configuration.width != null &&
+          platform.configuration.height != null) {
+        return;
+      }
+      unawaited(platform.setSizeFromDisplay(
+        logicalWidth: constraints.maxWidth,
+        logicalHeight: constraints.maxHeight,
+        devicePixelRatio: devicePixelRatio,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return media_kit_video_controls.VideoStateInheritedWidget(
+    return LayoutBuilder(builder: (context, constraints) {
+      _applyDisplaySizeFromConstraints(
+        constraints,
+        MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0,
+      );
+      return media_kit_video_controls.VideoStateInheritedWidget(
       state: this as dynamic,
       contextNotifier: _contextNotifier,
       videoViewParametersNotifier: videoViewParametersNotifier,
@@ -468,6 +498,7 @@ class VideoState extends State<Video> with WidgetsBindingObserver {
         },
       ),
     );
+    });
   }
 }
 

@@ -6,6 +6,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:synchronized/synchronized.dart';
@@ -47,6 +48,92 @@ class NativeVideoController extends PlatformVideoController {
   /// Height of the video (from [VideoParams]).
   int? videoParamsHeight;
 
+  static const int kDefaultMaxOutputWidth = 1920;
+  static const int kDefaultMaxOutputHeight = 1080;
+
+  int? displayWidth;
+  int? displayHeight;
+
+  bool displaySizeDriven = false;
+
+  static ({int width, int height}) computeOutputSize({
+    required double logicalWidth,
+    required double logicalHeight,
+    required double devicePixelRatio,
+    required int videoWidth,
+    required int videoHeight,
+    int maxWidth = kDefaultMaxOutputWidth,
+    int maxHeight = kDefaultMaxOutputHeight,
+  }) {
+    final int vw = videoWidth > 0 ? videoWidth : maxWidth;
+    final int vh = videoHeight > 0 ? videoHeight : maxHeight;
+    final double dpr = devicePixelRatio > 0 ? devicePixelRatio : 1.0;
+    final double pw = (logicalWidth > 0 ? logicalWidth : vw.toDouble()) * dpr;
+    final double ph = (logicalHeight > 0 ? logicalHeight : vh.toDouble()) * dpr;
+    final double capW = math.min(pw, maxWidth.toDouble());
+    final double capH = math.min(ph, maxHeight.toDouble());
+    final double scale = math.min(math.min(capW / vw, capH / vh), 1.0);
+    final int w = (vw * scale).floor();
+    final int h = (vh * scale).floor();
+    return (width: w < 1 ? 1 : w, height: h < 1 ? 1 : h);
+  }
+
+  Future<void> setSizeFromDisplay({
+    required double logicalWidth,
+    required double logicalHeight,
+    required double devicePixelRatio,
+    int maxWidth = kDefaultMaxOutputWidth,
+    int maxHeight = kDefaultMaxOutputHeight,
+  }) async {
+    final double dpr = devicePixelRatio > 0 ? devicePixelRatio : 1.0;
+    displayWidth = (logicalWidth * dpr).round();
+    displayHeight = (logicalHeight * dpr).round();
+    displaySizeDriven = true;
+
+    final int vw = videoParamsWidth ?? 0;
+    final int vh = videoParamsHeight ?? 0;
+    if (vw <= 0 || vh <= 0) {
+      return;
+    }
+    final out = computeOutputSize(
+      logicalWidth: logicalWidth,
+      logicalHeight: logicalHeight,
+      devicePixelRatio: dpr,
+      videoWidth: vw,
+      videoHeight: vh,
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
+    );
+    await setSize(width: out.width, height: out.height);
+  }
+
+  Future<void> _applyFallbackSize() async {
+    final int vw = videoParamsWidth ?? kDefaultMaxOutputWidth;
+    final int vh = videoParamsHeight ?? kDefaultMaxOutputHeight;
+    final out = computeOutputSize(
+      logicalWidth: vw.toDouble(),
+      logicalHeight: vh.toDouble(),
+      devicePixelRatio: 1.0,
+      videoWidth: vw,
+      videoHeight: vh,
+    );
+    await setSize(width: out.width, height: out.height);
+  }
+
+  Future<void> _reapplySize() async {
+    if (displaySizeDriven &&
+        displayWidth != null &&
+        displayHeight != null) {
+      await setSizeFromDisplay(
+        logicalWidth: displayWidth!.toDouble(),
+        logicalHeight: displayHeight!.toDouble(),
+        devicePixelRatio: 1.0,
+      );
+    } else {
+      await _applyFallbackSize();
+    }
+  }
+
   /// [Lock] used to synchronize [onLoadHooks], [onUnloadHooks] & [subscription].
   final lock = Lock();
 
@@ -78,8 +165,6 @@ class NativeVideoController extends PlatformVideoController {
           return;
         }
 
-        final int handle = await player.handle;
-
         final int width;
         final int height;
         if (event.rotate == 0 || event.rotate == 180) {
@@ -98,14 +183,12 @@ class NativeVideoController extends PlatformVideoController {
         videoParamsWidth = width;
         videoParamsHeight = height;
 
-        await _channel.invokeMethod(
-          'VideoOutputManager.SetSize',
-          {
-            'handle': handle.toString(),
-            'width': width.toString(),
-            'height': height.toString(),
-          },
-        );
+        if (configuration.width != null &&
+            configuration.height != null &&
+            !displaySizeDriven) {
+          return;
+        }
+        await _reapplySize();
       }),
     );
   }
@@ -224,14 +307,10 @@ class NativeVideoController extends PlatformVideoController {
     } else {
       this.width = null;
       this.height = null;
-      await _channel.invokeMethod(
-        'VideoOutputManager.SetSize',
-        {
-          'handle': handle.toString(),
-          'width': videoParamsWidth?.toString() ?? 'null',
-          'height': videoParamsHeight?.toString() ?? 'null',
-        },
-      );
+      displaySizeDriven = false;
+      displayWidth = null;
+      displayHeight = null;
+      await _applyFallbackSize();
     }
   }
 
