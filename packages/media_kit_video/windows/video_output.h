@@ -41,6 +41,10 @@ typedef struct _VideoOutputConfiguration {
 
 class VideoOutput {
  public:
+  bool hardware_acceleration_used() const {
+    return hardware_acceleration_used_;
+  }
+
   int64_t texture_id() const { return texture_id_; }
   int64_t width() const {
     // H/W
@@ -121,6 +125,8 @@ class VideoOutput {
   std::unique_ptr<uint8_t[]> pixel_buffer_ = nullptr;
   std::unordered_map<int64_t, std::unique_ptr<FlutterDesktopPixelBuffer>>
       pixel_buffer_textures_ = {};
+
+  bool hardware_acceleration_used_ = false;
 
   // Coalesces high-frequency mpv update callbacks into one in-flight
   // ThreadPool task, instead of posting CheckAndResize + Render every time.

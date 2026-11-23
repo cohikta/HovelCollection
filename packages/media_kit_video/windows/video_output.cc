@@ -18,6 +18,19 @@
 #define SW_RENDERING_PIXEL_BUFFER_SIZE \
   (SW_RENDERING_MAX_WIDTH) * (SW_RENDERING_MAX_HEIGHT) * (4)
 
+namespace {
+
+constexpr int64_t kResizeAlignment = 8;
+
+int64_t AlignUp(int64_t value, int64_t alignment) {
+  if (value <= 0) {
+    return alignment;
+  }
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+}
+
 VideoOutput::VideoOutput(int64_t handle,
                          VideoOutputConfiguration configuration,
                          flutter::PluginRegistrarWindows* registrar,
@@ -68,19 +81,23 @@ VideoOutput::VideoOutput(int64_t handle,
               reinterpret_cast<void*>(this));
           Resize(width_.value_or(1), height_.value_or(1));
           is_hardware_acceleration_enabled = true;
+          hardware_acceleration_used_ = true;
           std::cout << "media_kit: VideoOutput: Using H/W rendering."
                     << std::endl;
         } else {
-          std::cout << "media_kit: VideoOutput: D3D11 render context failed: "
-                    << mpv_error_string(err)
-                    << ", falling back to S/W rendering." << std::endl;
+          std::cout << "media_kit: VideoOutput: [PERF WARNING] D3D11 render "
+                       "context failed: " << mpv_error_string(err) << std::endl;
+          std::cout << "media_kit: VideoOutput: [PERF WARNING] Falling back to "
+                       "S/W rendering: up to 1920x1080 RGBA CPU copy + "
+                       "CPU->GPU upload per frame." << std::endl;
         }
       } catch (const std::exception& e) {
-        std::cout << "media_kit: VideoOutput: D3D11 init failed: " << e.what()
-                  << ", falling back to S/W rendering." << std::endl;
+        std::cout << "media_kit: VideoOutput: [PERF WARNING] D3D11 init failed: "
+                  << e.what() << ", falling back to S/W rendering."
+                  << std::endl;
       } catch (...) {
-        std::cout << "media_kit: VideoOutput: D3D11 init failed (unknown), "
-                     "falling back to S/W rendering."
+        std::cout << "media_kit: VideoOutput: [PERF WARNING] D3D11 init failed "
+                     "(unknown), falling back to S/W rendering."
                   << std::endl;
       }
       if (!is_hardware_acceleration_enabled) {
@@ -89,7 +106,9 @@ VideoOutput::VideoOutput(int64_t handle,
       }
     }
     if (!is_hardware_acceleration_enabled) {
-      std::cout << "media_kit: VideoOutput: Using S/W rendering." << std::endl;
+      std::cout << "media_kit: VideoOutput: [PERF WARNING] Using S/W "
+                   "rendering; expect significantly higher CPU and bus usage."
+                << std::endl;
       // Allocate a "large enough" buffer ahead of time.
       pixel_buffer_ =
           std::make_unique<uint8_t[]>(SW_RENDERING_PIXEL_BUFFER_SIZE);
@@ -316,6 +335,10 @@ void VideoOutput::CheckAndResize() {
     // Invalid.
     return;
   }
+
+  const int64_t aligned_width = AlignUp(required_width, kResizeAlignment);
+  const int64_t aligned_height = AlignUp(required_height, kResizeAlignment);
+
   int64_t current_width = -1, current_height = -1;
   if (surface_manager_ != nullptr) {
     current_width = surface_manager_->width();
@@ -334,11 +357,11 @@ void VideoOutput::CheckAndResize() {
   // Either H/W or S/W rendered.
   assert(current_width > 0);
   assert(current_height > 0);
-  if (required_width == current_width && required_height == current_height) {
+  if (aligned_width == current_width && aligned_height == current_height) {
     // No creation of new texture required.
     return;
   }
-  Resize(required_width, required_height);
+  Resize(aligned_width, aligned_height);
 }
 
 void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
@@ -495,7 +518,8 @@ int64_t VideoOutput::GetVideoWidth() {
       return SW_RENDERING_MAX_WIDTH;
     }
     if (height >= SW_RENDERING_MAX_HEIGHT) {
-      return width / height * SW_RENDERING_MAX_HEIGHT;
+      return height > 0 ? width * SW_RENDERING_MAX_HEIGHT / height
+                        : SW_RENDERING_MAX_WIDTH;
     }
   }
 
@@ -544,7 +568,8 @@ int64_t VideoOutput::GetVideoHeight() {
       return SW_RENDERING_MAX_HEIGHT;
     }
     if (width >= SW_RENDERING_MAX_WIDTH) {
-      return height / width * SW_RENDERING_MAX_WIDTH;
+      return width > 0 ? height * SW_RENDERING_MAX_WIDTH / width
+                       : SW_RENDERING_MAX_HEIGHT;
     }
   }
 

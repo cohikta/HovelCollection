@@ -12,10 +12,11 @@
 #include <cstdint>
 #include <functional>
 
-#include "utils.h"
+#include "d3d11_device_singleton.h"
 
-// |D3D11SurfaceManager| owns the ID3D11Device passed to libmpv, the texture
-// mpv renders into, and the shared texture handed to Flutter.
+// |D3D11SurfaceManager| owns the texture mpv renders into and the shared
+// texture handed to Flutter. The ID3D11Device itself is process-wide
+// and owned by |D3D11DeviceSingleton|; instances only hold a reference.
 // * |Draw|: runs mpv_render_context_render into |internal| texture, then
 //   copies |internal| -> |external| and submits everything with one Flush().
 // * |Read|: kept for API compatibility; intentionally does no GPU work now.

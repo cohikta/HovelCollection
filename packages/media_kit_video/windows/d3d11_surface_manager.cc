@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include <mutex>
+
 #define FAIL(message)                                                    \
   std::cout << "media_kit: D3D11SurfaceManager: " << message << std::endl; \
   return false
@@ -28,6 +30,9 @@ void D3D11SurfaceManager::SetSize(int32_t width, int32_t height) {
 }
 
 void D3D11SurfaceManager::Draw(std::function<void()> callback, bool publish) {
+  std::lock_guard<std::mutex> lock(
+      D3D11DeviceSingleton::Instance().mutex());
+
   // All GPU work happens here, on the ThreadPool render thread, on mpv's own
   // immediate context. No other thread touches this context while mpv renders.
   callback();
@@ -68,41 +73,12 @@ void D3D11SurfaceManager::Create() {
 }
 
 bool D3D11SurfaceManager::CreateD3DTexture() {
-  if (d3d_11_device_ == nullptr) {
-    const std::vector<D3D_FEATURE_LEVEL> feature_levels = {
-        D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1,
-        D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3,
-    };
-    IDXGIAdapter* adapter = nullptr;
-    D3D_DRIVER_TYPE driver_type = D3D_DRIVER_TYPE_UNKNOWN;
-    if (Utils::IsWindows10RTMOrGreater()) {
-      adapter = NULL;
-      driver_type = D3D_DRIVER_TYPE_HARDWARE;
-    } else {
-      IDXGIFactory* dxgi = nullptr;
-      ::CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&dxgi);
-      dxgi->EnumAdapters(0, &adapter);
-      dxgi->Release();
-    }
-
-    auto hr = ::D3D11CreateDevice(
-        adapter, driver_type, 0, 0, feature_levels.data(),
-        static_cast<UINT>(feature_levels.size()), D3D11_SDK_VERSION,
-        &d3d_11_device_, 0, &d3d_11_device_context_);
-    CHECK_HRESULT("D3D11CreateDevice");
+  auto& shared = D3D11DeviceSingleton::Instance();
+  d3d_11_device_ = shared.device();
+  d3d_11_device_context_ = shared.context();
+  if (d3d_11_device_ == nullptr || d3d_11_device_context_ == nullptr) {
+    FAIL("Failed to acquire the shared ID3D11Device");
   }
-
-  Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device = nullptr;
-  auto dxgi_device_success = d3d_11_device_->QueryInterface(
-      __uuidof(IDXGIDevice), (void**)&dxgi_device);
-  if (SUCCEEDED(dxgi_device_success) && dxgi_device != nullptr) {
-    dxgi_device->SetGPUThreadPriority(5);  // Must be in interval [-7, 7].
-  }
-
-  auto level = d3d_11_device_->GetFeatureLevel();
-  std::cout << "media_kit: D3D11SurfaceManager: Direct3D Feature Level: "
-            << (((unsigned)level) >> 12) << "_"
-            << ((((unsigned)level) >> 8) & 0xf) << std::endl;
 
   auto desc = D3D11_TEXTURE2D_DESC{0};
   desc.Width = width_;
@@ -135,12 +111,8 @@ bool D3D11SurfaceManager::CreateD3DTexture() {
 }
 
 void D3D11SurfaceManager::CleanUp(bool release_device) {
+  (void)release_device;
   internal_d3d_11_texture_2D_.Reset();
   d3d_11_texture_2D_.Reset();
   handle_ = nullptr;
-
-  if (release_device) {
-    d3d_11_device_context_.Reset();
-    d3d_11_device_.Reset();
-  }
 }
