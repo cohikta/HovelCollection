@@ -66,9 +66,9 @@ endfunction()
 
 set(LIBMPV_SRC "${CMAKE_BINARY_DIR}/libmpv")
 duanju_native_archive(
-  "mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
-  "https://github.com/Xanerix/guoapp/releases/download/windows-native-deps/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
-  "273c079b11ea5575822f972756f4c9a71149a5c10130353abeb8586738938452"
+  "mpv-dev-x86_64-20261122-git-09cf7a11f2.7z"
+  "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-22-09cf7a11f2/mpv-dev-x86_64-20261122-git-09cf7a11f2.7z"
+  "7e6aaf25c24bd5a33bea439f9931eb8240aeb5616273f68fd47701cef09bf15f"
   "${LIBMPV_SRC}"
   "libmpv-2.dll" "libmpv.dll.a" "include/mpv/client.h" "include/mpv/render.h"
 )

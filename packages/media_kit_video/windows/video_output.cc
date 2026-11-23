@@ -50,6 +50,7 @@ VideoOutput::VideoOutput(int64_t handle,
         mpv_render_param params[] = {
             {MPV_RENDER_PARAM_API_TYPE, MPV_RENDER_API_TYPE_D3D11},
             {MPV_RENDER_PARAM_D3D11_INIT_PARAMS, &d3d11_init_params},
+            {MPV_RENDER_PARAM_RENDERER, (void*)"gpu-next"},
             {MPV_RENDER_PARAM_INVALID, nullptr},
         };
         // Create render context.
