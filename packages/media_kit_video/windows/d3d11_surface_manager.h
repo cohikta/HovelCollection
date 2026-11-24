@@ -27,9 +27,7 @@ class D3D11SurfaceManager {
   const HANDLE handle() const { return handle_; }
 
   ID3D11Device* device() const { return d3d_11_device_.Get(); }
-  ID3D11Texture2D* target() const {
-    return internal_d3d_11_texture_2D_.Get();
-  }
+  ID3D11Texture2D* target() const { return d3d_11_texture_2D_.Get(); }
 
   D3D11SurfaceManager(int32_t width, int32_t height);
   ~D3D11SurfaceManager();

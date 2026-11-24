@@ -93,9 +93,7 @@ bool D3D11SurfaceManager::CreateD3DTexture() {
   desc.CPUAccessFlags = 0;
 
   desc.MiscFlags = 0;
-  auto hr = d3d_11_device_->CreateTexture2D(&desc, nullptr,
-                                            &internal_d3d_11_texture_2D_);
-  CHECK_HRESULT("ID3D11Device::CreateTexture2D(internal)");
+  HRESULT hr = S_OK;
 
   desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
   hr = d3d_11_device_->CreateTexture2D(&desc, nullptr,
