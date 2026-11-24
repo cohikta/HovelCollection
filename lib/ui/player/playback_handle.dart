@@ -37,18 +37,14 @@ class PlaybackHandle {
     bool preopen = true,
   }) {
     final main = _player();
-    final standby = preopen ? _player() : null;
     final configuration = _videoConfiguration(store);
     _videos[main] = VideoController(main, configuration: configuration);
-    if (standby != null) {
-      _videos[standby] = VideoController(standby, configuration: configuration);
-    }
     session = PlaybackSession(
       repository: repository,
       store: store,
       detail: detail,
       player: main,
-      standby: standby,
+      preopen: preopen,
       index: index,
       position: position,
       autoplay: autoplay,

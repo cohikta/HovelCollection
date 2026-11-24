@@ -69,7 +69,6 @@ Future<(PlaybackSession, FakePlayer)> _open(
   LocalStore store, {
   int index = 0,
   double position = 0,
-  FakePlayer? standby,
   bool autoplay = true,
 }) async {
   final player = FakePlayer();
@@ -78,7 +77,7 @@ Future<(PlaybackSession, FakePlayer)> _open(
     store: store,
     detail: dramaDetail(_show, count: 3),
     player: player,
-    standby: standby,
+    preopen: preopen,
     index: index,
     position: position,
     autoplay: autoplay,
@@ -370,45 +369,37 @@ void main() {
     },
   );
 
-  test('the next episode waits paused in the standby player', () async {
+  test('the next episode is only pre-cached on the main player', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+    final (session, player) = await _open(repository, store);
 
     await _settle(player);
 
     expect(repository.preloaded, [2]);
-    expect(session.standbyIndex, 1);
-    expect(identical(session.standby, standby), isTrue);
-    expect(standby.opened.single.uri, 'https://media.test/2.m3u8');
-    expect(standby.state.playing, isFalse);
-
-    player.finish();
-    await pumpEventQueue();
-
-    expect(session.index, 1);
     expect(identical(session.player, standby), isTrue);
-    expect(standby.state.playing, isTrue);
-    expect(standby.opened, hasLength(1));
+    expect(player.opened, hasLength(1));
+    final switching = session.play(1);
+    expect(identical(session.player, player), isTrue);
+    await switching;
+    expect(session.index, 1);
+    expect(player.opened, hasLength(2));
+    expect(player.opened.last.uri, 'https://media.test/2.m3u8');
+    expect(player.state.playing, isTrue);
     expect(repository.resolved, hasLength(1));
     expect(player.stops, greaterThan(0));
     expect(repository.released, contains('session-1'));
-    expect(session.standbyIndex, -1);
   });
 
   test('jumping elsewhere drops the waiting next episode', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+    final (session, player) = await _open(repository, store);
     await _settle(player);
 
     await session.play(2);
 
     expect(identical(session.player, player), isTrue);
-    expect(session.standbyIndex, -1);
-    expect(standby.stops, greaterThan(0));
     expect(repository.released, contains('session-2'));
     expect(repository.resolved.last.episode, 3);
   });
@@ -458,24 +449,18 @@ void main() {
   });
 
   test(
-    'the next episode opens near the end and keeps loading while paused',
+    'the next episode is pre-cached near the end and keeps loading while paused',
     () async {
       final repository = _PlaybackRepository();
       final store = await openStore();
-      final standby = FakePlayer();
-      final (session, player) = await _open(
-        repository,
-        store,
-        standby: standby,
-      );
+      final (session, player) = await _open(repository, store);
 
       session.togglePlayback();
       player.state = player.state.copyWith(buffer: _seconds(24));
       player.progress(_seconds(20), duration: _seconds(100));
       await Future<void>.delayed(const Duration(milliseconds: 700));
       await pumpEventQueue();
-      expect(repository.preloaded, isEmpty);
-      expect(session.standbyIndex, -1);
+      expect(session.session.player, -1);
 
       player.state = player.state.copyWith(buffer: _seconds(64));
       player.progress(_seconds(60), duration: _seconds(100));
@@ -483,41 +468,41 @@ void main() {
       await pumpEventQueue();
 
       expect(player.state.playing, isFalse);
-      expect(session.standbyIndex, 1);
+      expect(repository.preloaded, [2]);
+      expect(player.opened, hasLength(1));
     },
   );
 
   test('a paused preopen does not open the next episode', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
-    final standby = FakePlayer();
     final (session, player) = await _open(
       repository,
       store,
-      standby: standby,
       autoplay: false,
     );
 
     await _settle(player);
 
     expect(repository.preloaded, isEmpty);
-    expect(session.standbyIndex, -1);
+    expect(player.opened, hasLength(1));
   });
 
-  test('switching to the waiting episode swaps players at once', () async {
+  test('switching to the pre-cached episode keeps the same player', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+    final (session, player) = await _open(repository, store);
     await _settle(player);
 
     final switching = session.play(1);
 
-    expect(identical(session.player, standby), isTrue);
-    expect(session.ready, isTrue);
-    expect(session.paused, isFalse);
+    expect(identical(session.player, player), isTrue);
     await switching;
-    expect(standby.state.playing, isTrue);
+    expect(session.index, 1);
+    expect(identical(session.player, player), isTrue);
+    expect(player.opened, hasLength(2));
+    expect(player.state.playing, isTrue);
+    expect(repository.resolved, hasLength(1));
     expect(store.watched(_show.id)!.episode, 1);
   });
 

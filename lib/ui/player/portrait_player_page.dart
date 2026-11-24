@@ -541,11 +541,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   Widget _page(BuildContext context, int index) {
     final session = _session;
     final current = index == session.index;
-    final player = current
-        ? session.player
-        : index == session.standbyIndex
-        ? session.standby
-        : null;
+    final player = current ? session.player : null;
     final waiting = player == null || current && session.loading;
     return Listener(
       onPointerSignal: _wheel,

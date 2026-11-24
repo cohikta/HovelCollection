@@ -84,11 +84,12 @@ class PlaybackSession extends ChangeNotifier {
     required this.store,
     required this.detail,
     required this._player,
-    this._standby,
+    bool preopen = true,
     required int index,
     double position = 0,
     bool autoplay = true,
   }) : _engaged = autoplay,
+       _preopen = preopen,
        _index = index,
        _epoch = store.profileEpoch {
     final preferences = store.playbackPreferences;
@@ -99,7 +100,7 @@ class PlaybackSession extends ChangeNotifier {
     _unmutedVolume = store.playerVolume.clamp(1.0, 100.0);
     unawaited(_player.setVolume(_unmutedVolume));
     _loader = PlaybackLoader(repository);
-    _preloader = PlaybackPreloader(repository)..addListener(_prime);
+    _preloader = PlaybackPreloader(repository)..addListener(_notify);
     danmaku = DanmakuController(repository)
       ..setEnabled(_danmakuEnabled)
       ..setMergeWindow(preferences.danmakuMerge)
@@ -226,14 +227,14 @@ class PlaybackSession extends ChangeNotifier {
   final AppRepository repository;
   final LocalStore store;
   DramaDetail detail;
-  Player _player;
-  Player? _standby;
+  final Player _player;
   late final DanmakuController danmaku;
   late final PlaybackLoader _loader;
   late final PlaybackPreloader _preloader;
   final _recovery = PlaybackRecovery();
   final _health = PlaybackHealth();
   final int _epoch;
+  final bool _preopen;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   Timer? _saveTimer;
   Timer? _healthTimer;
@@ -242,7 +243,6 @@ class PlaybackSession extends ChangeNotifier {
   Timer? _stallTimer;
   Timer? _volumeTimer;
   Timer? _sleepTimer;
-  Timer? _standbyIdleTimer;
   Timer? _resumeTimer;
   Timer? _seekWatchdog;
   DateTime? _pausedSince;
@@ -279,10 +279,6 @@ class PlaybackSession extends ChangeNotifier {
   String? _savedProgressKey;
   bool _savedQuietly = false;
   PlaybackPlan? _plan;
-  PlaybackPlan? _standbyPlan;
-  int _standbyIndex = -1;
-  bool _standbyOpen = false;
-  DateTime _standbyAt = DateTime(2000);
   double _openedAt = 0;
   double _speed = 1;
   int _quality = 0;
@@ -294,8 +290,6 @@ class PlaybackSession extends ChangeNotifier {
 
   Player get player => _player;
 
-  Player? get standby => _standbyOpen ? _standby : null;
-  int get standbyIndex => _standbyOpen ? _standbyIndex : -1;
   int get index => _index;
   Episode get episode => detail.episodes[_index];
   bool get loading => _loading;
@@ -385,7 +379,6 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return;
     if (store.profileEpoch != _epoch || store.locked) {
       _preloader.clear();
-      _dropStandby();
       _playIntent = false;
       endBoost();
       unawaited(player.pause());
@@ -475,7 +468,6 @@ class PlaybackSession extends ChangeNotifier {
     _stop();
     _cancelResumeWatchdog();
     _pausedSince = DateTime.now();
-    _scheduleStandbyIdle();
     _notify();
   }
 
@@ -515,18 +507,7 @@ class PlaybackSession extends ChangeNotifier {
     final duration = state.duration.inMilliseconds;
     final position = state.position.inMilliseconds;
     final ahead = state.buffer.inMilliseconds - position;
-    if (_standby != null) {
-      if (_standbyOpen &&
-          DateTime.now().difference(_standbyAt) > const Duration(minutes: 8)) {
-        _dropStandby();
-      }
-      if (_standbyIndex >= 0 ||
-          duration <= 0 ||
-          duration - position > 45000 ||
-          ahead < 3000) {
-        return;
-      }
-    } else {
+    if (!_preopen) {
       if (!state.playing || state.buffering || !_playIntent) {
         _preloader.pause();
         return;
@@ -537,6 +518,11 @@ class PlaybackSession extends ChangeNotifier {
           ahead < 5000) {
         return;
       }
+    } else if (duration <= 0 ||
+        duration - position > 45000 ||
+        ahead < 3000) {
+
+      return;
     }
     _preloader.prepare(
       detail.drama,
@@ -625,7 +611,6 @@ class PlaybackSession extends ChangeNotifier {
     if (_advancingSeason || !_usable) return false;
     _advancingSeason = true;
     final ticket = _generation;
-    _dropStandby();
     _preloader.clear();
     _notify();
     try {
@@ -836,14 +821,6 @@ class PlaybackSession extends ChangeNotifier {
     _staleAudio = false;
     _cancelResumeWatchdog();
     if (index != _index) _online = false;
-    if (recovery == null &&
-        position == 0 &&
-        _standbyOpen &&
-        _standbyIndex == index &&
-        !_online) {
-      return _swap(index, playWhenReady);
-    }
-    _dropStandby();
     final warmed = recovery == null
         ? _preloader.take(
             detail.drama,
@@ -967,110 +944,6 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _swap(int index, bool playWhenReady) async {
-    final plan = _standbyPlan!;
-    final next = _standby!;
-    final previous = _player;
-    final previousPlan = _plan;
-    final volume = previous.state.volume;
-    unawaited(saveProgress());
-    _preloader.clear();
-    final ticket = ++_generation;
-    _seekSequence++;
-    _seekWatchdog?.cancel();
-    _pendingError = false;
-    _errorTimer?.cancel();
-    _health.reset();
-    _recovery.reset();
-    _playIntent = playWhenReady;
-    _resumePosition = 0;
-    _openedAt = 0;
-    _index = index;
-    _error = null;
-    _localFailure = false;
-    _loginRequired = false;
-    _loading = false;
-    _standbyPlan = null;
-    _standbyIndex = -1;
-    _standbyOpen = false;
-    _player = next;
-    _standby = previous;
-    _plan = plan;
-    _bind();
-    _openedIndex = index;
-    _acceptErrors = true;
-    final stopping = previous.stop().catchError((Object _) {});
-    if (previousPlan != null) unawaited(_release(previousPlan.session));
-    danmaku.setPlan(plan);
-    _notify();
-    _syncDanmaku();
-    try {
-      await _limitCache(next, false);
-      await next.setVolume(volume);
-      await _setRate(_rate);
-      await stopping;
-      await _selectAudio(next, true);
-      if (_current(ticket) && _foreground && _playIntent) await next.play();
-    } catch (_) {
-      if (_current(ticket)) _queueRecovery('open_exception');
-    }
-  }
-
-  void _prime() {
-    final standby = _standby;
-    final next = _index + 1;
-    if (_closed ||
-        standby == null ||
-        _standbyIndex >= 0 ||
-        !_preloader.ready ||
-        next >= detail.episodes.length) {
-      return;
-    }
-    _standbyIndex = next;
-    final plan = _preloader.take(
-      detail.drama,
-      detail.episodes[next],
-      quality: _quality,
-      online: _online,
-    );
-    if (plan == null) {
-      _standbyIndex = -1;
-      return;
-    }
-    _standbyPlan = plan;
-    unawaited(_open(standby, plan));
-  }
-
-  Future<void> _open(Player standby, PlaybackPlan plan) async {
-    try {
-      await _configure(standby, plan);
-      await _limitCache(standby, true);
-      await _selectAudio(standby, false);
-      await standby.open(
-        Media(plan.url, httpHeaders: plan.headers),
-        play: false,
-      );
-    } catch (_) {
-      if (identical(_standbyPlan, plan)) _dropStandby();
-      return;
-    }
-    if (_closed || !identical(_standbyPlan, plan)) return;
-    _standbyOpen = true;
-    _standbyAt = DateTime.now();
-    _notify();
-  }
-
-  void _dropStandby() {
-    _cancelStandbyIdle();
-    final plan = _standbyPlan;
-    final opened = _standbyOpen || plan != null;
-    _standbyPlan = null;
-    _standbyIndex = -1;
-    _standbyOpen = false;
-    if (opened) unawaited(_standby?.stop().catchError((Object _) {}));
-    if (plan != null) unawaited(_release(plan.session));
-  }
-
   Future<void> _limitCache(Player target, bool limited) async {
     final platform = target.platform;
     if (platform is! NativePlayer) return;
@@ -1159,7 +1032,6 @@ class PlaybackSession extends ChangeNotifier {
     _playIntent = !player.state.playing;
     _health.reset();
     if (_playIntent) {
-      _cancelStandbyIdle();
       final paused = _takePausedSeconds();
       if (paused >= 5) DiaryService.add('[Play] 恢复播放，已暂停 $paused 秒');
       if (!local && paused >= 5) _armResumeWatchdog();
@@ -1167,7 +1039,6 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _cancelResumeWatchdog();
       _pausedSince = DateTime.now();
-      _scheduleStandbyIdle();
     }
     if (_playIntent && player.state.completed) {
       unawaited(play(_index));
@@ -1249,21 +1120,6 @@ class PlaybackSession extends ChangeNotifier {
       if (_closed) return;
       await play(_index, position: position);
     }
-  }
-
-  void _scheduleStandbyIdle() {
-    _cancelStandbyIdle();
-    if (_standby == null) return;
-    _standbyIdleTimer = Timer(const Duration(minutes: 1), () {
-      _standbyIdleTimer = null;
-      if (_closed || _playIntent || _standbyIndex < 0) return;
-      _dropStandby();
-    });
-  }
-
-  void _cancelStandbyIdle() {
-    _standbyIdleTimer?.cancel();
-    _standbyIdleTimer = null;
   }
 
   Future<bool> seekTo(Duration target) async {
@@ -1552,8 +1408,6 @@ class PlaybackSession extends ChangeNotifier {
       _playIntent = false;
       _pausedSince = DateTime.now();
       _cancelResumeWatchdog();
-      _cancelStandbyIdle();
-      _dropStandby();
       _preloader.clear();
       unawaited(player.pause());
       unawaited(saveProgress());
@@ -1571,18 +1425,15 @@ class PlaybackSession extends ChangeNotifier {
     }
     if (!Platform.isIOS) return;
     if (visible) {
-      _dropStandby();
       _preloader.clear();
     }
-    for (final target in [_player, ?_standby]) {
-      final platform = target.platform;
-      if (platform is! NativePlayer) continue;
-      unawaited(
-        platform
-            .setProperty('vid', _videoHidden ? 'no' : 'auto')
-            .catchError((Object _) {}),
-      );
-    }
+    final platform = player.platform;
+    if (platform is! NativePlayer) return;
+    unawaited(
+      platform
+          .setProperty('vid', _videoHidden ? 'no' : 'auto')
+          .catchError((Object _) {}),
+    );
   }
 
   Future<void> saveProgress({bool quiet = false}) async {
@@ -1636,7 +1487,6 @@ class PlaybackSession extends ChangeNotifier {
     _seekWatchdog?.cancel();
     _volumeTimer?.cancel();
     _sleepTimer?.cancel();
-    _standbyIdleTimer?.cancel();
     _resumeTimer?.cancel();
     if (_volumeTimer != null) _saveVolume();
     for (final subscription in _subscriptions) {
@@ -1646,15 +1496,11 @@ class PlaybackSession extends ChangeNotifier {
     _preloader.dispose();
     final session = _plan?.session ?? '';
     unawaited(_release(session));
-    final standbyPlan = _standbyPlan;
-    if (standbyPlan != null) unawaited(_release(standbyPlan.session));
-    final standby = _standby;
     unawaited(_loader.close().catchError((Object _) {}));
     unawaited(
       _operations.catchError((Object _) {}).then((_) async {
         await _rates.catchError((Object _) {});
         await player.dispose();
-        await standby?.dispose();
       }),
     );
     super.dispose();
