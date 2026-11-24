@@ -5,7 +5,7 @@ publish_to: none
 homepage: https://github.com/media-kit/media-kit
 
 environment:
-  sdk: ">=2.17.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0"
   flutter: ">=3.7.0"
 
 dependencies:

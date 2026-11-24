@@ -41,7 +41,9 @@ class PlayerVideo extends StatelessWidget {
       controls: NoVideoControls,
       fill: Colors.black,
       fit: BoxFit.fill,
+      wakelock: false,
       pauseUponEnteringBackgroundMode: false,
+      resumeUponEnteringForegroundMode: false,
     );
     final ratio = MediaQuery.devicePixelRatioOf(context);
     return ColoredBox(
